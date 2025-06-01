@@ -7,7 +7,7 @@ const Sidebar = ({ crmType, setCrmType }) => {
   const propFirmMenuItems = [
     { path: '/dashboard', label: 'Dashboard' },
     { path: '/cuentas', label: 'Cuentas' },
-    { path: '/clientes', label: 'Clientes' },
+    { path: '/clientes', label: 'Usuarios' },
     { path: '/capital', label: 'Capital' },
     { path: '/retiros', label: 'Retiros' },
     { path: '/tickets-soporte', label: 'Tickets de Soporte' },

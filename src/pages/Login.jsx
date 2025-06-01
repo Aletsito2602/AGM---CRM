@@ -17,7 +17,7 @@ const Login = () => {
 
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      navigate('/cuentas');
+      navigate('/dashboard');
     } catch (error) {
       console.error('Error al iniciar sesión:', error);
       setError(

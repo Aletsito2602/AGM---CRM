@@ -11,7 +11,7 @@ const ClientesPage = () => {
 
   return (
     <div>
-      <h1>Clientes</h1>
+      <h1>Usuarios Registrados</h1>
       <table>
         <thead>
           <tr>

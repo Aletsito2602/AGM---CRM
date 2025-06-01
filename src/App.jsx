@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import Layout from './components/Layout';
 import Redirect from './components/Redirect';
 import DashboardPage from './pages/DashboardPage';
@@ -26,10 +26,22 @@ function App() {
   const [crmType, setCrmType] = useState('prop-firm');
 
   return (
-    <Layout crmType={crmType} setCrmType={setCrmType}>
-      <Routes>
+    <Routes>
+      {/* Ruta de login */}
+      <Route path="/login" element={<Login />} />
+
+      {/* Rutas protegidas */}
+      <Route
+        element={
+          <ProtectedRoute>
+            <Layout crmType={crmType} setCrmType={setCrmType}>
+              <Outlet />
+            </Layout>
+          </ProtectedRoute>
+        }
+      >
         {/* Redirección desde la raíz */}
-        <Route path="/" element={<Redirect crmType={crmType} />} />
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
 
         {/* Rutas Prop Firm */}
         <Route path="/dashboard" element={<DashboardPage crmType={crmType} />} />
@@ -52,34 +64,22 @@ function App() {
         <Route path="/copytrading" element={<CopytradingPage />} />
         <Route path="/pamm" element={<PammPage />} />
         <Route path="/bonos" element={<BonosPage />} />
+      </Route>
 
-        {/* Rutas de login y protecciones */}
-        <Route path="/login" element={<Login />} />
-        <Route
-          path="/cuentas"
-          element={
-            <ProtectedRoute>
-              <CuentasPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route path="/" element={<Navigate to="/cuentas" replace />} />
-
-        {/* 404 - Página no encontrada */}
-        <Route path="*" element={
-          <div style={{ 
-            display: 'flex', 
-            justifyContent: 'center', 
-            alignItems: 'center', 
-            height: '100vh',
-            color: '#b0c4de',
-            fontSize: '1.5rem'
-          }}>
-            Página no encontrada
-          </div>
-        } />
-      </Routes>
-    </Layout>
+      {/* 404 - Página no encontrada */}
+      <Route path="*" element={
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'center', 
+          alignItems: 'center', 
+          height: '100vh',
+          color: '#b0c4de',
+          fontSize: '1.5rem'
+        }}>
+          Página no encontrada
+        </div>
+      } />
+    </Routes>
   );
 }
 

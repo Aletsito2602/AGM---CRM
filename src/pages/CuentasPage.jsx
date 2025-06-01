@@ -1,114 +1,8 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import mt5Api from '../services/mt5Api';
 import { auth, db } from '../services/firebase';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { useAuthState } from 'react-firebase-hooks/auth';
-
-// Datos de ejemplo para challenges
-const fakeChallengesData = [
-  {
-    id: 1,
-    numeroChallenge: 'AGM-1234',
-    trader: 'Juan Pérez',
-    email: 'juan@email.com',
-    fase: 'Fase 1',
-    capital: 10000,
-    balance: 10200,
-    equity: 10150,
-    estado: 'Activo',
-    fechaInicio: '2024-03-01',
-    fechaFin: '2024-03-31',
-    objetivo: '8%',
-    drawdown: '5%',
-    diasRestantes: 15,
-    ultimaActualizacion: '2024-03-15 14:30',
-    notas: 'Challenge en buen estado',
-    tipo: 'Demo',
-    violaciones: [],
-    historialRetiros: [],
-    ultimaOperacion: {
-      fecha: '2024-03-15 14:30',
-      simbolo: 'EURUSD',
-      tipo: 'Compra',
-      volumen: 0.1,
-      precio: 1.0850,
-      sl: 1.0800,
-      tp: 1.0900
-    }
-  },
-  {
-    id: 2,
-    numeroChallenge: 'AGM-1235',
-    trader: 'María García',
-    email: 'maria@email.com',
-    fase: 'Fase 2',
-    capital: 10000,
-    balance: 10800,
-    equity: 10750,
-    estado: 'Inactivo',
-    fechaInicio: '2024-03-01',
-    fechaFin: '2024-03-31',
-    objetivo: '5%',
-    drawdown: '4%',
-    diasRestantes: 15,
-    ultimaActualizacion: '2024-03-15 16:45',
-    notas: 'Challenge inactivo por violación de reglas',
-    tipo: 'Demo',
-    violaciones: [],
-    historialRetiros: [],
-    ultimaOperacion: null
-  },
-  {
-    id: 3,
-    numeroChallenge: 'AGM-1236',
-    trader: 'Carlos López',
-    email: 'carlos@email.com',
-    fase: 'Real',
-    capital: 25000,
-    balance: 24500,
-    equity: 24400,
-    estado: 'Inactivo',
-    fechaInicio: '2024-03-01',
-    fechaFin: null,
-    objetivo: '8%',
-    drawdown: '5%',
-    diasRestantes: null,
-    ultimaActualizacion: '2024-03-15 10:15',
-    notas: 'Challenge fondeado inactivo',
-    tipo: 'Fondeado',
-    violaciones: [],
-    historialRetiros: [
-      {
-        fecha: '2024-03-01',
-        monto: 1000,
-        estado: 'Completado'
-      }
-    ],
-    ultimaOperacion: null
-  },
-  {
-    id: 4,
-    numeroChallenge: 'AGM-1237',
-    trader: 'Ana Martínez',
-    email: 'ana@email.com',
-    fase: 'Real',
-    capital: 50000,
-    balance: 51200,
-    equity: 51100,
-    estado: 'Activo',
-    fechaInicio: '2024-03-01',
-    fechaFin: null,
-    objetivo: '5%',
-    drawdown: '4%',
-    diasRestantes: null,
-    ultimaActualizacion: '2024-03-15 09:30',
-    notas: 'Challenge fondeado con buen rendimiento',
-    tipo: 'Fondeado',
-    violaciones: [],
-    historialRetiros: [],
-    ultimaOperacion: null
-  }
-];
 
 // Tooltip visual reutilizable
 const Tooltip = ({ text }) => {
@@ -219,509 +113,420 @@ const CuentasPage = () => {
   });
   const [mt5Error, setMt5Error] = useState('');
   const [mt5Success, setMt5Success] = useState('');
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [editForm, setEditForm] = useState({
+    status: '',
+    challengePhase: '',
+    balanceActual: 0
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
 
   useEffect(() => {
-    if (user && db) {
-      const fetchTradingAccounts = async () => {
-        setLoadingAccounts(true);
-        try {
-          const q = query(collection(db, "tradingAccounts"), where("userId", "==", user.uid));
-          const querySnapshot = await getDocs(q);
-          const accountsData = querySnapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data(),
-            // Ensure createdAt is a JS Date object if it's a Firestore Timestamp
-            createdAt: doc.data().createdAt?.toDate ? doc.data().createdAt.toDate() : new Date(doc.data().createdAt)
-          }));
-          setTradingAccounts(accountsData);
-          setAccountsError(null);
-        } catch (err) {
-          console.error("Error fetching trading accounts: ", err);
-          setAccountsError("Error al cargar las cuentas de trading.");
-          setTradingAccounts([]); // Clear accounts on error
-        } finally {
-          setLoadingAccounts(false);
-        }
-      };
-      fetchTradingAccounts();
-    } else if (!user && !loadingAuth) {
-      // Handle case where user is not logged in and auth is not loading
-      setLoadingAccounts(false);
-      setTradingAccounts([]);
-      // Optionally redirect to login or show a message
-    }
-  }, [user, loadingAuth, db]);
-
-  const accountsFiltrados = useMemo(() => {
-    return tradingAccounts.filter(account => {
-      const searchTermLower = searchTerm.toLowerCase();
-      const matchesSearch = 
-        (account.accountNumber && account.accountNumber.toLowerCase().includes(searchTermLower)) ||
-        (user && user.displayName && user.displayName.toLowerCase().includes(searchTermLower)) || // Assuming you might want to search by user name
-        (user && user.email && user.email.toLowerCase().includes(searchTermLower));
-      
-      // Adapt filter logic for tradingAccount fields
-      const matchesFase = filtroFase === 'todos' || (account.challengePhase && account.challengePhase === filtroFase);
-      const matchesEstado = filtroEstado === 'todos' || (account.status && account.status === filtroEstado);
-      // Example: Mapping filtroTipo to account.serverType or account.challengeType
-      const matchesTipo = filtroTipo === 'todos' || 
-                          (account.serverType && account.serverType.toLowerCase().includes(filtroTipo.toLowerCase())) || 
-                          (account.challengeType && account.challengeType.toLowerCase().includes(filtroTipo.toLowerCase()));
-      
-      let matchesCapital = true;
-      if (filtroCapital !== 'todos') {
-        const capitalFilter = parseInt(filtroCapital);
-        // Assuming challengeAmountNumber is the field to filter by
-        matchesCapital = account.challengeAmountNumber >= capitalFilter && account.challengeAmountNumber < capitalFilter + 10000; 
+    const fetchTradingAccounts = async () => {
+      if (!db) {
+        setAccountsError('Firestore no está disponible');
+        setLoadingAccounts(false);
+        return;
       }
 
-      // const matchesObjetivo = filtroObjetivo === 'todos' || account.selectedProfitTargetP1 === filtroObjetivo; // Example
-      // const matchesDrawdown = filtroDrawdown === 'todos' || account.drawdown === filtroDrawdown; // Need field for this
+      try {
+        setLoadingAccounts(true);
+        const accountsRef = collection(db, 'tradingAccounts');
+        const querySnapshot = await getDocs(accountsRef);
+        const accountsData = querySnapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            numeroChallenge: data.accountNumber || 'N/A',
+            trader: data.userId || 'N/A',
+            email: 'N/A',
+            fase: data.challengePhase || 'N/A',
+            capital: data.balanceActual || 0,
+            balance: data.balanceActual || 0,
+            equity: data.balanceActual || 0,
+            estado: data.status || 'N/A',
+            fechaInicio: data.createdAt ? new Date(data.createdAt.toDate()).toLocaleDateString() : 'N/A',
+            fechaFin: 'N/A',
+            objetivo: data.selectedProfitTargetP1 || 'N/A',
+            drawdown: 'N/A',
+            diasRestantes: 'N/A',
+            ultimaActualizacion: data.createdAt ? new Date(data.createdAt.toDate()).toLocaleString() : 'N/A',
+            tipoCuenta: data.accountType || 'N/A',
+            tipoChallenge: data.challengeType || 'N/A',
+            servidor: data.serverType || 'N/A',
+            profitSplit: data.selectedProfitSplit || 'N/A',
+            precio: data.priceString || 'N/A'
+          };
+        });
+        console.log('Cuentas cargadas:', accountsData);
+        setTradingAccounts(accountsData);
+      } catch (err) {
+        console.error('Error al obtener cuentas:', err);
+        setAccountsError('Error al cargar las cuentas');
+      } finally {
+        setLoadingAccounts(false);
+      }
+    };
 
-      const accountDate = account.createdAt instanceof Date ? account.createdAt : (account.createdAt && new Date(account.createdAt));
-      const matchesFecha = 
-        (!filtroFechaInicio || (accountDate && accountDate >= new Date(filtroFechaInicio))) && 
-        (!filtroFechaFin || (accountDate && accountDate <= new Date(filtroFechaFin)));
-
-      return matchesSearch && matchesFase && matchesEstado && matchesTipo && 
-             matchesCapital && /*matchesObjetivo && matchesDrawdown &&*/ matchesFecha;
-    });
-  }, [searchTerm, filtroFase, filtroEstado, filtroTipo, filtroCapital, 
-      /*filtroObjetivo, filtroDrawdown,*/ filtroFechaInicio, filtroFechaFin, tradingAccounts, user]);
+    fetchTradingAccounts();
+  }, []);
 
   const handleAction = (action, account) => {
     setSelectedAccount(account);
-    setModalType(action);
-    setShowModal(true);
+    if (action === 'editar') {
+      setEditForm({
+        status: account.estado,
+        challengePhase: account.fase,
+        balanceActual: account.capital
+      });
+      setShowEditModal(true);
+    } else if (action === 'eliminar') {
+      setShowDeleteModal(true);
+    }
+  };
+
+  const handleEdit = async () => {
+    if (!selectedAccount) return;
+    
+    setIsSubmitting(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const accountRef = doc(db, 'tradingAccounts', selectedAccount.id);
+      await updateDoc(accountRef, {
+        status: editForm.status,
+        challengePhase: editForm.challengePhase,
+        balanceActual: Number(editForm.balanceActual)
+      });
+
+      // Actualizar la lista de cuentas
+      const updatedAccounts = tradingAccounts.map(acc => 
+        acc.id === selectedAccount.id 
+          ? { 
+              ...acc, 
+              estado: editForm.status,
+              fase: editForm.challengePhase,
+              capital: Number(editForm.balanceActual),
+              balance: Number(editForm.balanceActual),
+              equity: Number(editForm.balanceActual)
+            }
+          : acc
+      );
+      setTradingAccounts(updatedAccounts);
+      
+      setSuccess('Cuenta actualizada exitosamente');
+      setShowEditModal(false);
+    } catch (err) {
+      console.error('Error al actualizar la cuenta:', err);
+      setError('Error al actualizar la cuenta');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!selectedAccount) return;
+    
+    setIsSubmitting(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const accountRef = doc(db, 'tradingAccounts', selectedAccount.id);
+      await deleteDoc(accountRef);
+
+      // Actualizar la lista de cuentas
+      const updatedAccounts = tradingAccounts.filter(acc => acc.id !== selectedAccount.id);
+      setTradingAccounts(updatedAccounts);
+      
+      setSuccess('Cuenta eliminada exitosamente');
+      setShowDeleteModal(false);
+    } catch (err) {
+      console.error('Error al eliminar la cuenta:', err);
+      setError('Error al eliminar la cuenta');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const getEstadoColor = (estado) => {
-    switch (estado) {
-      case 'Activa': return '#28a745';
-      case 'Inactivo': return '#dc3545';
-      case 'Pendiente': return '#ffc107';
-      default: return '#6c757d';
+    switch (estado?.toLowerCase()) {
+      case 'activa':
+        return '#28a745';
+      case 'inactiva':
+        return '#dc3545';
+      default:
+        return '#6c757d';
     }
   };
 
   const calcularEstadisticas = () => {
-    const totalCuentas = tradingAccounts.length;
-    const capitalTotal = tradingAccounts.reduce((sum, acc) => sum + (acc.challengeAmountNumber || 0), 0);
-    const cuentasActivas = tradingAccounts.filter(acc => acc.status === 'Activa').length;
+    const total = tradingAccounts.length;
+    const activos = tradingAccounts.filter(acc => acc.estado?.toLowerCase() === 'activa').length;
+    const inactivos = tradingAccounts.filter(acc => acc.estado?.toLowerCase() === 'inactiva').length;
+    const capitalTotal = tradingAccounts.reduce((sum, acc) => sum + (acc.capital || 0), 0);
+
     return {
-      'Total Cuentas': totalCuentas,
-      'Capital Total': `$${capitalTotal.toLocaleString()}`,
-      'Cuentas Activas': cuentasActivas,
+      total,
+      activos,
+      inactivos,
+      capitalTotal
     };
   };
 
-  const handleMt5Submit = async (e) => {
-    e.preventDefault();
-    setMt5Error('');
-    setMt5Success('');
+  const filteredAccounts = useMemo(() => {
+    return tradingAccounts.filter(account => {
+      const matchesSearch = 
+        account.numeroChallenge?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        account.trader?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        account.email?.toLowerCase().includes(searchTerm.toLowerCase());
 
-    if (!user) {
-      setMt5Error("Debes iniciar sesión para crear una cuenta.");
-      return;
-    }
+      const matchesFase = filtroFase === 'todos' || account.fase === filtroFase;
+      const matchesEstado = filtroEstado === 'todos' || account.estado === filtroEstado;
 
-    // Validaciones básicas
-    if (!mt5FormData.name.trim()) {
-      setMt5Error("El nombre es obligatorio.");
-      return;
-    }
-    if (!mt5FormData.email.trim() || !/\S+@\S+\.\S+/.test(mt5FormData.email)) {
-      setMt5Error("El correo electrónico no es válido.");
-      return;
-    }
-    if (!mt5FormData.purchase_id.trim()) {
-        setMt5Error("El ID de compra es obligatorio.");
-        return;
-    }
-    if (!mt5FormData.phone.trim()) {
-        setMt5Error("El teléfono es obligatorio.");
-        return;
-    }
+      return matchesSearch && matchesFase && matchesEstado;
+    });
+  }, [tradingAccounts, searchTerm, filtroFase, filtroEstado]);
 
-    // Mostrar indicador de carga aquí si es necesario
-    console.log("Enviando datos para crear cuenta MT5:", { ...mt5FormData, userId: user.uid });
+  const stats = calcularEstadisticas();
 
-    try {
-      // Obtener el token de Firebase
-      const token = await user.getIdToken();
-      
-      // Llamar a la API con el token y los datos del formulario
-      const response = await mt5Api.createAccount(token, mt5FormData);
-      console.log("Respuesta de creación de cuenta:", response);
-      setMt5Success(`Cuenta ${response.data?.login || 'nueva'} creada con éxito.`);
-      setShowMt5Modal(false);
-      
-      // Limpiar el formulario
-      setMt5FormData({
-        name: '',
-        email: '',
-        leverage: 100,
-        deposit: 1000,
-        challenge_type: 'one_step',
-        group: 'challenge\\onestep',
-        purchase_id: '',
-        phone: ''
-      });
-      
-      // Aquí podrías volver a cargar las cuentas para incluir la nueva
-      // fetchTradingAccounts(); // Si tienes esta función separada y disponible
-    } catch (error) {
-      console.error("Error al crear cuenta MT5:", error);
-      const errorMessage = error.response?.data?.error || error.message || "Error desconocido al crear la cuenta.";
-      setMt5Error(`Error: ${errorMessage}`);
-    }
-  };
-
-  const handleMt5InputChange = (e) => {
-    const { name, value } = e.target;
-    setMt5FormData(prevState => ({
-      ...prevState,
-      [name]: value
-    }));
-  };
-
-  if (loadingAuth || loadingAccounts) {
-    return <div style={{ textAlign: 'center', padding: '50px', fontSize: '1.2em', color: '#e0e6f0' }}>Cargando datos de cuentas...</div>;
-  }
-
-  if (errorAuth) {
-    return <div style={{ textAlign: 'center', padding: '50px', color: 'red' }}>Error de autenticación: {errorAuth.message}</div>;
+  if (loadingAccounts) {
+    return (
+      <div style={loadingStyle}>
+        Cargando cuentas...
+      </div>
+    );
   }
 
   if (accountsError) {
-    return <div style={{ textAlign: 'center', padding: '50px', color: 'red' }}>{accountsError}</div>;
+    return (
+      <div style={errorStyle}>
+        {accountsError}
+      </div>
+    );
   }
-
-  if (!user) {
-    return <div style={{ textAlign: 'center', padding: '50px', fontSize: '1.2em', color: '#e0e6f0' }}>Por favor, inicia sesión para ver tus cuentas.</div>;
-  }
-  
-  const estadisticas = calcularEstadisticas();
 
   return (
-    <div style={{ padding: '20px' }}>
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center',
-        marginBottom: '30px'
-      }}>
-        <h1 style={{ margin: 0, color: '#b0c4de' }}>Gestión de Cuentas de Trading</h1>
-        <button
-          onClick={() => setShowMt5Modal(true)}
-          style={{
-            padding: '12px 24px',
-            backgroundColor: '#28a745',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: 'pointer',
-            fontSize: '1em',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-            transition: 'background-color 0.2s'
-          }}
-          onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#218838'}
-          onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#28a745'}
-        >
-          <span>➕</span>
-          Crear Cuenta MT5
-        </button>
-      </div>
-
-      <div style={{ 
-        display: 'grid', 
-        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-        gap: '20px',
-        marginBottom: '30px'
-      }}>
-        {Object.entries(estadisticas).map(([key, value]) => (
-          <div key={key} style={kpiCardStyle}>
-            <h3 style={{ color: '#b0c4de', margin: '0 0 10px 0', display: 'flex', alignItems: 'center', gap: 4 }}>
-              {key}
-              <Tooltip text={kpiDescriptions[key] || "Descripción no disponible"} />
-            </h3>
-            <p style={{ fontSize: '24px', margin: 0, color: '#b0c4de' }}>{value}</p>
-          </div>
-        ))}
-      </div>
-
-      <div style={{ 
-        marginBottom: '20px', 
-        padding: '20px', 
-        backgroundColor: '#2c2c2c', 
-        borderRadius: '8px',
-        boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-      }}>
-        <div style={{ 
-          display: 'grid', 
-          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-          gap: '15px'
-        }}>
-          <div>
-            <input
-              type="text"
-              placeholder="Buscar por N° Cuenta, Trader, Email..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              style={filterInputStyle}
-            />
-          </div>
-          <div>
-            <select 
-              value={filtroTipo} 
-              onChange={(e) => setFiltroTipo(e.target.value)}
-              style={filterSelectStyle}
-            >
-              <option value="todos">Todos los Tipos</option>
-              <option value="Demo">Demo</option>
-              <option value="Fondeado">Fondeado</option>
-            </select>
-          </div>
-          <div>
-            <select 
-              value={filtroFase} 
-              onChange={(e) => setFiltroFase(e.target.value)}
-              style={filterSelectStyle}
-            >
-              <option value="todos">Todas las Fases</option>
-              <option value="Fase 1">Fase 1</option>
-              <option value="Fase 2">Fase 2</option>
-              <option value="Real">Real</option>
-            </select>
-          </div>
-          <div>
-            <select 
-              value={filtroEstado} 
-              onChange={(e) => setFiltroEstado(e.target.value)}
-              style={filterSelectStyle}
-            >
-              <option value="todos">Todos los Estados</option>
-              <option value="Activa">Activa</option>
-              <option value="Inactivo">Inactivo</option>
-              <option value="Pendiente">Pendiente</option>
-            </select>
-          </div>
-          <div>
-            <select 
-              value={filtroCapital} 
-              onChange={(e) => setFiltroCapital(e.target.value)}
-              style={filterSelectStyle}
-            >
-              <option value="todos">Todos los Capitales</option>
-              <option value="10000">$10,000</option>
-              <option value="25000">$25,000</option>
-              <option value="50000">$50,000</option>
-              <option value="100000">$100,000</option>
-            </select>
-          </div>
-          <div>
-            <input
-              type="date"
-              value={filtroFechaInicio}
-              onChange={(e) => setFiltroFechaInicio(e.target.value)}
-              style={filterInputStyle}
-              placeholder="Fecha Inicio"
-            />
-          </div>
-          <div>
-            <input
-              type="date"
-              value={filtroFechaFin}
-              onChange={(e) => setFiltroFechaFin(e.target.value)}
-              style={filterInputStyle}
-              placeholder="Fecha Fin"
-            />
-          </div>
+    <div style={containerStyle}>
+      <div style={headerStyle}>
+        <h2 style={titleStyle}>Cuentas de Trading</h2>
+        <div style={searchContainerStyle}>
+          <input
+            type="text"
+            placeholder="Buscar por número de challenge, trader o email..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            style={searchInputStyle}
+          />
+          <select
+            value={filtroFase}
+            onChange={(e) => setFiltroFase(e.target.value)}
+            style={selectStyle}
+          >
+            <option value="todos">Todas las fases</option>
+            <option value="Fase 1">Fase 1</option>
+            <option value="Fase 2">Fase 2</option>
+            <option value="Real">Real</option>
+          </select>
+          <select
+            value={filtroEstado}
+            onChange={(e) => setFiltroEstado(e.target.value)}
+            style={selectStyle}
+          >
+            <option value="todos">Todos los estados</option>
+            <option value="Activo">Activo</option>
+            <option value="Inactivo">Inactivo</option>
+            <option value="Advertencia">Advertencia</option>
+          </select>
         </div>
       </div>
 
-      <div style={{ overflowX: 'auto' }}>
+      <div style={statsContainerStyle}>
+        <div style={statCardStyle}>
+          <h3 style={statTitleStyle}>Total Challenges</h3>
+          <p style={statValueStyle}>{stats.total}</p>
+          <Tooltip text={kpiDescriptions['Total Challenges']} />
+        </div>
+        <div style={statCardStyle}>
+          <h3 style={statTitleStyle}>Capital Total</h3>
+          <p style={statValueStyle}>${stats.capitalTotal.toLocaleString()}</p>
+          <Tooltip text={kpiDescriptions['Capital Total']} />
+        </div>
+        <div style={statCardStyle}>
+          <h3 style={statTitleStyle}>Challenges Activos</h3>
+          <p style={statValueStyle}>{stats.activos}</p>
+          <Tooltip text={kpiDescriptions['Challenges Activos']} />
+        </div>
+        <div style={statCardStyle}>
+          <h3 style={statTitleStyle}>Challenges Inactivos</h3>
+          <p style={statValueStyle}>{stats.inactivos}</p>
+          <Tooltip text={kpiDescriptions['Challenges Inactivos']} />
+        </div>
+      </div>
+
+      {error && (
+        <div style={errorMessageStyle}>
+          {error}
+        </div>
+      )}
+
+      {success && (
+        <div style={successMessageStyle}>
+          {success}
+        </div>
+      )}
+
+      <div style={tableContainerStyle}>
         <table style={tableStyle}>
           <thead>
             <tr>
-              <th style={thStyle}>N° Cuenta</th>
-              <th style={thStyle}>Tipo de Cuenta</th>
+              <th style={thStyle}>Número Challenge</th>
+              <th style={thStyle}>Trader ID</th>
               <th style={thStyle}>Fase</th>
-              <th style={thStyle}>Monto del Challenge</th>
-              <th style={thStyle}>Balance Actual</th>
+              <th style={thStyle}>Capital</th>
+              <th style={thStyle}>Balance</th>
               <th style={thStyle}>Estado</th>
               <th style={thStyle}>Fecha Creación</th>
+              <th style={thStyle}>Tipo Cuenta</th>
               <th style={thStyle}>Servidor</th>
+              <th style={thStyle}>Objetivo</th>
+              <th style={thStyle}>Profit Split</th>
+              <th style={thStyle}>Precio</th>
+              <th style={thStyle}>Acciones</th>
             </tr>
           </thead>
           <tbody>
-            {accountsFiltrados.map((account) => (
+            {filteredAccounts.map((account) => (
               <tr key={account.id} style={trStyle}>
-                <td style={tdStyle}>{account.accountNumber}</td>
-                <td style={tdStyle}>{account.accountStyle} ({account.accountType})</td>
-                <td style={tdStyle}>{account.challengePhase}</td>
-                <td style={tdStyle}>{account.challengeAmountString}</td>
-                <td style={tdStyle}>${(account.balanceActual || 0).toLocaleString()}</td>
-                <td style={{ ...tdStyle, color: getEstadoColor(account.status) }}>{account.status}</td>
-                <td style={tdStyle}>{account.createdAt ? new Date(account.createdAt).toLocaleDateString() : 'N/A'}</td>
-                <td style={tdStyle}>{account.serverType}</td>
+                <td style={tdStyle}>{account.numeroChallenge}</td>
+                <td style={tdStyle}>{account.trader}</td>
+                <td style={tdStyle}>{account.fase}</td>
+                <td style={tdStyle}>${account.capital?.toLocaleString()}</td>
+                <td style={tdStyle}>${account.balance?.toLocaleString()}</td>
+                <td style={tdStyle}>
+                  <span style={{
+                    ...statusBadgeStyle,
+                    backgroundColor: getEstadoColor(account.estado)
+                  }}>
+                    {account.estado}
+                  </span>
+                </td>
+                <td style={tdStyle}>{account.fechaInicio}</td>
+                <td style={tdStyle}>{account.tipoCuenta}</td>
+                <td style={tdStyle}>{account.servidor}</td>
+                <td style={tdStyle}>{account.objetivo}</td>
+                <td style={tdStyle}>{account.profitSplit}</td>
+                <td style={tdStyle}>{account.precio}</td>
+                <td style={tdStyle}>
+                  <button
+                    onClick={() => handleAction('editar', account)}
+                    style={actionButtonStyle}
+                  >
+                    Editar
+                  </button>
+                  <button
+                    onClick={() => handleAction('eliminar', account)}
+                    style={deleteButtonStyle}
+                  >
+                    Eliminar
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
 
-      {showModal && selectedAccount && (
+      {/* Modal de Edición */}
+      {showEditModal && selectedAccount && (
         <div style={modalOverlayStyle}>
           <div style={modalStyle}>
-            <h2 style={{ marginTop: 0, color: '#b0c4de' }}>Detalles de la Cuenta: {selectedAccount.accountNumber}</h2>
+            <h2 style={modalTitleStyle}>Editar Cuenta</h2>
             <div style={modalContentStyle}>
-              <p><strong>Tipo de Cuenta:</strong> {selectedAccount.accountStyle} ({selectedAccount.accountType})</p>
-              <p><strong>Fase:</strong> {selectedAccount.challengePhase}</p>
-              <p><strong>Monto del Challenge:</strong> {selectedAccount.challengeAmountString}</p>
-              <p><strong>Balance Actual:</strong> ${(selectedAccount.balanceActual || 0).toLocaleString()}</p>
-              <p><strong>Estado:</strong> {selectedAccount.status}</p>
-              <p><strong>Fecha Creación:</strong> {selectedAccount.createdAt ? new Date(selectedAccount.createdAt).toLocaleString() : 'N/A'}</p>
-              <p><strong>Servidor:</strong> {selectedAccount.serverType}</p>
-              <p><strong>Profit Target P1:</strong> {selectedAccount.selectedProfitTargetP1}</p>
-              <p><strong>Profit Target P2:</strong> {selectedAccount.selectedProfitTargetP2}</p>
-              <p><strong>Profit Split:</strong> {selectedAccount.selectedProfitSplit}</p>
-              <p><strong>ID Usuario:</strong> {selectedAccount.userId}</p>
+              <div style={formGroupStyle}>
+                <label style={labelStyle}>Estado:</label>
+                <select
+                  value={editForm.status}
+                  onChange={(e) => setEditForm({...editForm, status: e.target.value})}
+                  style={inputStyle}
+                >
+                  <option value="Activa">Activa</option>
+                  <option value="Inactiva">Inactiva</option>
+                </select>
+              </div>
+              <div style={formGroupStyle}>
+                <label style={labelStyle}>Fase:</label>
+                <select
+                  value={editForm.challengePhase}
+                  onChange={(e) => setEditForm({...editForm, challengePhase: e.target.value})}
+                  style={inputStyle}
+                >
+                  <option value="1 FASE">1 FASE</option>
+                  <option value="2 FASE">2 FASE</option>
+                  <option value="REAL">REAL</option>
+                </select>
+              </div>
+              <div style={formGroupStyle}>
+                <label style={labelStyle}>Capital:</label>
+                <input
+                  type="number"
+                  value={editForm.balanceActual}
+                  onChange={(e) => setEditForm({...editForm, balanceActual: e.target.value})}
+                  style={inputStyle}
+                />
+              </div>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+            <div style={modalActionsStyle}>
               <button
-                onClick={() => setShowModal(false)}
-                style={modalButtonStyle}
+                onClick={() => setShowEditModal(false)}
+                style={cancelButtonStyle}
+                disabled={isSubmitting}
               >
-                Cerrar
+                Cancelar
+              </button>
+              <button
+                onClick={handleEdit}
+                style={submitButtonStyle}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? 'Guardando...' : 'Guardar Cambios'}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {showMt5Modal && (
+      {/* Modal de Eliminación */}
+      {showDeleteModal && selectedAccount && (
         <div style={modalOverlayStyle}>
           <div style={modalStyle}>
-            <h2>Crear Nueva Cuenta MT5</h2>
-            {mt5Error && (
-              <div style={{ color: '#dc3545', marginBottom: '15px' }}>
-                {mt5Error}
-              </div>
-            )}
-            {mt5Success && (
-              <div style={{ color: '#28a745', marginBottom: '15px' }}>
-                {mt5Success}
-              </div>
-            )}
-            <form onSubmit={handleMt5Submit}>
-              <div style={modalSectionStyle}>
-                <label style={{ display: 'block', marginBottom: '5px' }}>Nombre:</label>
-                <input
-                  type="text"
-                  name="name"
-                  value={mt5FormData.name}
-                  onChange={handleMt5InputChange}
-                  required
-                  style={filterInputStyle}
-                />
-              </div>
-              <div style={modalSectionStyle}>
-                <label style={{ display: 'block', marginBottom: '5px' }}>Email:</label>
-                <input
-                  type="email"
-                  name="email"
-                  value={mt5FormData.email}
-                  onChange={handleMt5InputChange}
-                  required
-                  style={filterInputStyle}
-                />
-              </div>
-              <div style={modalSectionStyle}>
-                <label style={{ display: 'block', marginBottom: '5px' }}>Teléfono:</label>
-                <input
-                  type="tel"
-                  name="phone"
-                  value={mt5FormData.phone}
-                  onChange={handleMt5InputChange}
-                  required
-                  style={filterInputStyle}
-                />
-              </div>
-              <div style={modalSectionStyle}>
-                <label style={{ display: 'block', marginBottom: '5px' }}>Apalancamiento:</label>
-                <select
-                  name="leverage"
-                  value={mt5FormData.leverage}
-                  onChange={handleMt5InputChange}
-                  style={filterSelectStyle}
-                >
-                  <option value="100">1:100</option>
-                  <option value="50">1:50</option>
-                  <option value="30">1:30</option>
-                  <option value="10">1:10</option>
-                </select>
-              </div>
-              <div style={modalSectionStyle}>
-                <label style={{ display: 'block', marginBottom: '5px' }}>Depósito Inicial:</label>
-                <input
-                  type="number"
-                  name="deposit"
-                  value={mt5FormData.deposit}
-                  onChange={handleMt5InputChange}
-                  required
-                  min="1000"
-                  style={filterInputStyle}
-                />
-              </div>
-              <div style={modalSectionStyle}>
-                <label style={{ display: 'block', marginBottom: '5px' }}>Tipo de Challenge:</label>
-                <select
-                  name="challenge_type"
-                  value={mt5FormData.challenge_type}
-                  onChange={handleMt5InputChange}
-                  style={filterSelectStyle}
-                >
-                  <option value="one_step">One Step</option>
-                  <option value="two_step">Two Step</option>
-                </select>
-              </div>
-              <div style={modalSectionStyle}>
-                <label style={{ display: 'block', marginBottom: '5px' }}>ID de Compra:</label>
-                <input
-                  type="text"
-                  name="purchase_id"
-                  value={mt5FormData.purchase_id}
-                  onChange={handleMt5InputChange}
-                  required
-                  style={filterInputStyle}
-                />
-              </div>
-              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-                <button
-                  type="button"
-                  onClick={() => setShowMt5Modal(false)}
-                  style={{
-                    ...modalButtonStyle,
-                    backgroundColor: '#6c757d'
-                  }}
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  style={{
-                    ...modalButtonStyle,
-                    backgroundColor: '#28a745'
-                  }}
-                >
-                  Crear Cuenta
-                </button>
-              </div>
-            </form>
+            <h2 style={modalTitleStyle}>Eliminar Cuenta</h2>
+            <div style={modalContentStyle}>
+              <p style={warningTextStyle}>
+                ¿Estás seguro de que deseas eliminar la cuenta {selectedAccount.numeroChallenge}?
+                Esta acción no se puede deshacer.
+              </p>
+            </div>
+            <div style={modalActionsStyle}>
+              <button
+                onClick={() => setShowDeleteModal(false)}
+                style={cancelButtonStyle}
+                disabled={isSubmitting}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleDelete}
+                style={deleteButtonStyle}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? 'Eliminando...' : 'Eliminar'}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -730,67 +535,162 @@ const CuentasPage = () => {
 };
 
 // Estilos
-const kpiCardStyle = {
+const containerStyle = {
+  padding: '20px',
+  backgroundColor: '#1a1a1a',
+  minHeight: '100vh'
+};
+
+const headerStyle = {
+  marginBottom: '20px'
+};
+
+const titleStyle = {
+  color: '#b0c4de',
+  marginBottom: '20px'
+};
+
+const searchContainerStyle = {
+  display: 'flex',
+  gap: '10px',
+  marginBottom: '20px'
+};
+
+const searchInputStyle = {
+  flex: 1,
+  padding: '10px',
+  borderRadius: '4px',
+  border: '1px solid #444',
+  backgroundColor: '#2c2c2c',
+  color: '#b0c4de'
+};
+
+const selectStyle = {
+  padding: '10px',
+  borderRadius: '4px',
+  border: '1px solid #444',
+  backgroundColor: '#2c2c2c',
+  color: '#b0c4de'
+};
+
+const statsContainerStyle = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+  gap: '20px',
+  marginBottom: '20px'
+};
+
+const statCardStyle = {
   backgroundColor: '#2c2c2c',
   padding: '20px',
   borderRadius: '8px',
-  boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  position: 'relative'
 };
 
-const filterInputStyle = {
-  width: '100%',
-  padding: '10px',
-  backgroundColor: '#383838',
-  color: 'rgba(255,255,255,0.9)',
-  border: '1px solid #555',
-  borderRadius: '4px',
-  fontSize: '0.9em'
+const statTitleStyle = {
+  color: '#b0c4de',
+  margin: '0 0 10px 0',
+  fontSize: '1em'
 };
 
-const filterSelectStyle = {
-  width: '100%',
-  padding: '10px',
-  backgroundColor: '#383838',
-  color: 'rgba(255,255,255,0.9)',
-  border: '1px solid #555',
-  borderRadius: '4px',
-  fontSize: '0.9em'
+const statValueStyle = {
+  color: '#17a2b8',
+  margin: 0,
+  fontSize: '1.5em',
+  fontWeight: 'bold'
+};
+
+const tableContainerStyle = {
+  overflowX: 'auto',
+  backgroundColor: '#2c2c2c',
+  borderRadius: '8px',
+  padding: '20px'
 };
 
 const tableStyle = {
   width: '100%',
   borderCollapse: 'collapse',
-  backgroundColor: '#2c2c2c',
-  borderRadius: '8px',
-  overflow: 'hidden'
+  color: '#b0c4de'
 };
 
 const thStyle = {
   padding: '12px',
   textAlign: 'left',
-  backgroundColor: '#383838',
-  color: '#b0c4de',
-  borderBottom: '2px solid #444'
+  borderBottom: '2px solid #444',
+  backgroundColor: '#383838'
+};
+
+const trStyle = {
+  borderBottom: '1px solid #444',
+  '&:hover': {
+    backgroundColor: '#383838'
+  }
 };
 
 const tdStyle = {
   padding: '12px',
-  borderBottom: '1px solid #444',
+  borderBottom: '1px solid #444'
+};
+
+const statusBadgeStyle = {
+  padding: '4px 8px',
+  borderRadius: '4px',
+  color: 'white',
+  fontSize: '0.9em'
+};
+
+const actionButtonStyle = {
+  backgroundColor: '#17a2b8',
+  color: 'white',
+  border: 'none',
+  padding: '6px 12px',
+  borderRadius: '4px',
+  cursor: 'pointer',
+  marginRight: '8px',
+  '&:hover': {
+    backgroundColor: '#138496'
+  }
+};
+
+const deleteButtonStyle = {
+  backgroundColor: '#dc3545',
+  color: 'white',
+  border: 'none',
+  padding: '6px 12px',
+  borderRadius: '4px',
+  cursor: 'pointer',
+  '&:hover': {
+    backgroundColor: '#c82333'
+  }
+};
+
+const loadingStyle = {
+  display: 'flex',
+  justifyContent: 'center',
+  alignItems: 'center',
+  height: '200px',
   color: '#b0c4de'
 };
 
-const trStyle = {
-  borderBottom: '1px solid #3a3a3a',
-  transition: 'background-color 0.2s ease'
+const errorStyle = {
+  display: 'flex',
+  justifyContent: 'center',
+  alignItems: 'center',
+  height: '200px',
+  color: '#dc3545'
 };
 
+// Nuevos estilos para los modales
 const modalOverlayStyle = {
   position: 'fixed',
   top: 0,
   left: 0,
   right: 0,
   bottom: 0,
-  backgroundColor: 'rgba(0,0,0,0.7)',
+  backgroundColor: 'rgba(0, 0, 0, 0.7)',
   display: 'flex',
   justifyContent: 'center',
   alignItems: 'center',
@@ -802,31 +702,96 @@ const modalStyle = {
   padding: '20px',
   borderRadius: '8px',
   width: '90%',
-  maxWidth: '600px',
-  maxHeight: '90vh',
-  overflowY: 'auto'
+  maxWidth: '500px',
+  boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
 };
 
-const modalContentStyle = {
-  marginTop: '20px',
+const modalTitleStyle = {
+  color: '#b0c4de',
+  marginTop: 0,
   marginBottom: '20px'
 };
 
-const modalSectionStyle = {
-  marginBottom: '20px',
-  padding: '15px',
-  backgroundColor: '#383838',
-  borderRadius: '4px'
+const modalContentStyle = {
+  marginBottom: '20px'
 };
 
-const modalButtonStyle = {
-  padding: '10px 20px',
+const formGroupStyle = {
+  marginBottom: '15px'
+};
+
+const labelStyle = {
+  display: 'block',
+  marginBottom: '5px',
+  color: '#b0c4de'
+};
+
+const inputStyle = {
+  width: '100%',
+  padding: '8px',
+  borderRadius: '4px',
+  border: '1px solid #444',
   backgroundColor: '#383838',
-  color: '#b0c4de',
-  border: '1px solid #555',
+  color: '#b0c4de'
+};
+
+const modalActionsStyle = {
+  display: 'flex',
+  justifyContent: 'flex-end',
+  gap: '10px'
+};
+
+const submitButtonStyle = {
+  backgroundColor: '#17a2b8',
+  color: 'white',
+  border: 'none',
+  padding: '8px 16px',
   borderRadius: '4px',
   cursor: 'pointer',
-  fontSize: '1em'
+  '&:hover': {
+    backgroundColor: '#138496'
+  },
+  '&:disabled': {
+    backgroundColor: '#6c757d',
+    cursor: 'not-allowed'
+  }
+};
+
+const cancelButtonStyle = {
+  backgroundColor: '#6c757d',
+  color: 'white',
+  border: 'none',
+  padding: '8px 16px',
+  borderRadius: '4px',
+  cursor: 'pointer',
+  '&:hover': {
+    backgroundColor: '#5a6268'
+  },
+  '&:disabled': {
+    backgroundColor: '#495057',
+    cursor: 'not-allowed'
+  }
+};
+
+const warningTextStyle = {
+  color: '#dc3545',
+  margin: 0
+};
+
+const errorMessageStyle = {
+  backgroundColor: '#dc3545',
+  color: 'white',
+  padding: '10px',
+  borderRadius: '4px',
+  marginBottom: '20px'
+};
+
+const successMessageStyle = {
+  backgroundColor: '#28a745',
+  color: 'white',
+  padding: '10px',
+  borderRadius: '4px',
+  marginBottom: '20px'
 };
 
 export default CuentasPage; 
