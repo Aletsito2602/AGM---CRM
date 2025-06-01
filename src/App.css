@@ -1,0 +1,74 @@
+/* Reseteamos los estilos de #root que venían por defecto con Vite */
+/* #root ya tiene height: 100% de index.css */
+
+.app-layout {
+  display: flex;
+  height: 100%; /* Ocupa toda la altura de #root */
+  width: 100%;  /* Ocupa todo el ancho de #root */
+}
+
+.main-content {
+  flex-grow: 1; /* El contenido principal toma el espacio restante */
+  padding: 25px; /* Un poco más de padding */
+  overflow-y: auto; /* Permite scroll si el contenido es más largo que la pantalla */
+  background-color: #212121; /* Un gris oscuro para el contenido, ligeramente diferente del body */
+  color: rgba(255, 255, 255, 0.87); /* Asegurar que el texto aquí también sea claro */
+}
+
+/* Estilos para el Sidebar (movidos de los estilos en línea) */
+.sidebar-container {
+  width: 260px; /* Un poco más ancho */
+  height: 100vh; /* Ocupa toda la altura de la ventana */
+  background-color: #2c2c2c; /* Color de fondo oscuro para el sidebar */
+  padding: 20px;
+  border-right: 1px solid #444; /* Borde más oscuro */
+  color: rgba(255, 255, 255, 0.8); /* Color de texto por defecto para el sidebar */
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-title {
+  margin-bottom: 25px;
+  text-align: center;
+  font-size: 1.5em; /* Título un poco más grande */
+}
+
+.sidebar-title a { /* Estilo específico para el enlace del título */
+  color: #b0c4de; /* Azul acero claro */
+  text-decoration: none;
+}
+
+.sidebar-title a:hover {
+  color: #ffffff;
+}
+
+.sidebar-list {
+  list-style-type: none;
+  padding: 0;
+  margin: 0;
+}
+
+.sidebar-list-item {
+  margin-bottom: 12px; /* Un poco más de espacio */
+}
+
+.sidebar-list-item a { /* Estilo para los enlaces de navegación */
+  text-decoration: none;
+  color: rgba(255, 255, 255, 0.7); /* Color de enlaces del sidebar */
+  display: block;
+  padding: 10px 15px; /* Más padding para mejor clickeabilidad */
+  border-radius: 5px;
+  transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out;
+}
+
+.sidebar-list-item a:hover {
+  background-color: #383838;
+  color: #ffffff; /* Texto blanco al pasar el mouse */
+}
+
+/* Podríamos añadir una clase 'active' para el enlace actual más adelante */
+.sidebar-list-item a.active {
+  background-color: #007bff; /* O un color oscuro como #4a4a4a */
+  color: #ffffff;
+  font-weight: bold;
+}
